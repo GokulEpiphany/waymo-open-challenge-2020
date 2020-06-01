@@ -1,0 +1,4 @@
+#!/bin/bash
+./distributed_train.sh 2 /root/waymo/data_2d_od/segment_15 --model tf_efficientdet_d2 -b 8 --lr 0.005 --opt momentum --fill-color mean --initial-checkpoint /root/waymo/training/models/efficientdet_d2-cb4ce77d.pth --redundant-bias --amp --save-images --warmup-epochs 0 --epochs 30 --cooldown-epochs 0 --eval-metric loss --sync-bn 
+./distributed_train.sh 2 /root/waymo/data_2d_od/ --model tf_efficientdet_d0 -b 24 --lr 0.005 --opt momentum --fill-color mean --initial-checkpoint models/effdet_d0.pth --redundant-bias --amp --save-images --warmup-epochs 0 --epochs 30 --cooldown-epochs 0 --eval-metric loss --sync-bn 
+./distributed_train.sh 2 /root/waymo/data_2d_od/ --model tf_efficientdet_d1 -b 12 --lr 0.005 --opt momentum --fill-color mean --initial-checkpoint models/effdet_d1.pth --redundant-bias --amp --save-images --warmup-epochs 0 --epochs 30 --cooldown-epochs 0 --eval-metric loss --sync-bn  

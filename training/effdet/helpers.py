@@ -8,10 +8,14 @@ except ImportError:
 
 
 def load_checkpoint(model, checkpoint_path, strict=True):
+    print("LOADING")
     if checkpoint_path and os.path.isfile(checkpoint_path):
         print("=> Loading checkpoint '{}'".format(checkpoint_path))
         checkpoint = torch.load(checkpoint_path)
-        if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+        print(checkpoint['state_dict'])
+        if isinstance(checkpoint,dict) and 'state_dict' in checkpoint:
+            print("COMES HERE")
+            print("$$$$$$$$$$$$$$$$$$$$")
             new_state_dict = OrderedDict()
             for k, v in checkpoint['state_dict'].items():
                 if k.startswith('module'):
@@ -21,6 +25,7 @@ def load_checkpoint(model, checkpoint_path, strict=True):
                 new_state_dict[name] = v
             model.load_state_dict(new_state_dict, strict=strict)
         else:
+            print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
             model.load_state_dict(checkpoint, strict=strict)
         print("=> Loaded checkpoint '{}'".format(checkpoint_path))
     else:

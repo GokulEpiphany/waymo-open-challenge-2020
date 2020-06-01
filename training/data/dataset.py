@@ -34,7 +34,8 @@ class CocoDetection(data.Dataset):
         self.yxyx = True   # expected for TF model, most PT are xyxy
         self.include_masks = False
         self.include_bboxes_ignore = False
-        self.has_annotations = 'image_info' not in ann_file
+        #self.has_annotations = 'image_info' not in ann_file
+        self.has_annotations = True # all images have annotations
         self.coco = None
         self.cat_ids = []
         self.cat_to_label = dict()
@@ -47,7 +48,10 @@ class CocoDetection(data.Dataset):
         assert self.coco is None
         self.coco = COCO(ann_file)
         self.cat_ids = self.coco.getCatIds()
+        print("loading_annotations")
+        print(self.cat_ids)
         img_ids_with_ann = set(_['image_id'] for _ in self.coco.anns.values())
+        print(img_ids_with_ann)
         for img_id in sorted(self.coco.imgs.keys()):
             info = self.coco.loadImgs([img_id])[0]
             valid_annotation = not self.has_annotations or img_id in img_ids_with_ann

@@ -1,5 +1,7 @@
 # EfficientDet (PyTorch)
 
+# Adapted From ROSS WIGHTMAN's work with EfficientDet
+
 This is a work in progress PyTorch implementation of EfficientDet. 
 
 It is based on the

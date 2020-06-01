@@ -64,12 +64,12 @@ for indx,tf_record in enumerate(tf_records):
                     ignoreId += 1
                     continue
                 cv2.imwrite(os.path.join(path_to_save,'{}.jpg'.format(imId)),im,[int(cv2.IMWRITE_JPEG_QUALITY),40])
-                image = {"date_captured":"2020","file_name":str(imId)+".png","id":imId,"license":1,"url":"","height":1280,"width":1920}
+                image = {"date_captured":"2020","file_name":str(imId)+".jpg","id":imId,"license":1,"url":"","height":1280,"width":1920}
                 images.append(image)
                 imId+=1
                 for label in imLabels:
                     bbox = [label.box.center_x - 0.5 *label.box.length,label.box.center_y-0.5 * label.box.width,label.box.length,label.box.width]
-                    annotation = {"segmentation":[],"area":label.box.length * label.box.width,"iscrowd":0,"id":imId-1,"bbox":bbox,"category_id":cat2id[WAYMO_CLASSES[label.type]],"id":label.id}
+                    annotation = {"segmentation":[],"area":label.box.length * label.box.width,"iscrowd":0,"image_id":imId-1,"bbox":bbox,"category_id":cat2id[WAYMO_CLASSES[label.type]],"id":label.id}
                     annotations.append(annotation)
     except Exception as e:
         print("EXCEPTION AT {}".format(indx))

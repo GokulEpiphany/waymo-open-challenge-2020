@@ -19,6 +19,7 @@ import time
 import yaml
 from datetime import datetime
 
+
 try:
     from apex import amp
     from apex.parallel import DistributedDataParallel as DDP
@@ -33,9 +34,10 @@ from effdet import get_efficientdet_config, EfficientDet, DetBenchEval, DetBench
 from data import CocoDetection, create_loader
 
 from timm.data import FastCollateMixup, mixup_batch
+from timm.models.layers import create_conv2d
 from timm.models import resume_checkpoint, load_checkpoint
 from timm.utils import *
-from timm.optim import create_optimizer
+from optim_factory import create_optimizer
 from timm.scheduler import create_scheduler
 
 import torch
@@ -197,6 +199,25 @@ parser.add_argument('--eval-metric', default='loss', type=str, metavar='EVAL_MET
 parser.add_argument('--tta', type=int, default=0, metavar='N',
                     help='Test/inference time augmentation (oversampling) factor. 0=None (default: 0)')
 parser.add_argument("--local_rank", default=0, type=int)
+def _fan_in_out(w,groups=1):
+    dimensions = w.dim()
+    if dimensions < 2:
+        raise ValueError("cannot be computed")
+    num_input_fmaps = w.size(1)
+    num_output_fmaps = w.size(0)
+    receptive_field_size = 1
+    if w.dim() > 2:
+        receptive_field_size = w[0][0].numel()
+    fan_in = num_input_fmaps * receptive_field_size
+    fan_out = num_output_fmaps * receptive_field_size
+    fan_out //= groups
+    return fan_in,fan_out
+
+def variance_scaling(w,gain=1,groups=1):
+    fan_in,fan_out = _fan_in_out(w,groups)
+    gain/=max(1.,fan_in)
+    std = math.sqrt(gain)
+    w.data.normal_(std=std)
 
 
 def _parse_args():
@@ -214,7 +235,6 @@ def _parse_args():
     # Cache the args as a text string to save them in the output dir later
     args_text = yaml.safe_dump(args.__dict__, default_flow_style=False)
     return args, args_text
-
 
 def _unwrap_bench(model):
     # FIXME push into CheckpointSaver or come up with cleaner support bench <-> model relationship
@@ -259,6 +279,15 @@ def main():
     config = get_efficientdet_config(args.model)
     config.redundant_bias = args.redundant_bias  # redundant conv + BN bias layers (True to match official models)
     model = EfficientDet(config)
+    if args.initial_checkpoint:
+        load_checkpoint(model,args.initial_checkpoint)
+
+    for name,p in model.named_parameters():
+        if 'class_net' in name or 'box_net' in name:
+            continue
+        p.requires_grad = False #frozen
+    print("Froze MODEL")
+    config.num_classes = 5
     model = DetBenchTrain(model, config)
 
     # FIXME create model factory, pretrained zoo
@@ -281,9 +310,12 @@ def main():
                      (args.model, sum([m.numel() for m in model.parameters()])))
 
     model.cuda()
+
     optimizer = create_optimizer(args, model)
     use_amp = False
     if has_apex and args.amp:
+        print("HAS APEX")
+        print("***********************")
         model, optimizer = amp.initialize(model, optimizer, opt_level='O1')
         use_amp = True
     if args.local_rank == 0:
@@ -294,7 +326,7 @@ def main():
     resume_state = {}
     resume_epoch = None
     if args.resume:
-        resume_state, resume_epoch = resume_checkpoint(_unwrap_bench(model), args.resume)
+       resume_state, resume_epoch = resume_checkpoint(_unwrap_bench(model), args.resume)
     if resume_state and not args.no_resume_opt:
         if 'optimizer' in resume_state:
             if args.local_rank == 0:
@@ -305,7 +337,14 @@ def main():
                 logging.info('Restoring NVIDIA AMP state from checkpoint')
             amp.load_state_dict(resume_state['amp'])
     del resume_state
+    print("Model created")
+    print("*******************")
 
+    model.model.class_net.predict.conv_pw =create_conv2d(config.fpn_channels,9*5,1,padding=config.pad_type,bias=True)
+    variance_scaling(model.model.class_net.predict.conv_pw.weight)
+    model.model.class_net.predict.conv_pw.bias.data.fill_(-math.log((1 - 0.01)/0.01))
+    model.cuda()
+    print(model.model.class_net.predict.conv_pw)
     model_ema = None
     if args.model_ema:
         # Important to create EMA model after cuda(), DP wrapper, and AMP but before SyncBN and DDP wrapper
@@ -318,6 +357,7 @@ def main():
             load_checkpoint(_unwrap_bench(model_ema), args.resume, use_ema=True)
 
     if args.distributed:
+        print("Distributed training")
         if args.sync_bn:
             try:
                 if has_apex:
@@ -337,7 +377,6 @@ def main():
                 logging.info("Using torch DistributedDataParallel. Install NVIDIA Apex for Apex DDP.")
             model = DDP(model, device_ids=[args.local_rank])  # can use device str in Torch >= 1.1
         # NOTE: EMA model does not need to be wrapped by DDP
-
     lr_scheduler, num_epochs = create_scheduler(args, optimizer)
     start_epoch = 0
     if args.start_epoch is not None:
@@ -351,9 +390,11 @@ def main():
     if args.local_rank == 0:
         logging.info('Scheduled epochs: {}'.format(num_epochs))
 
-    train_anno_set = 'train2017'
-    train_annotation_path = os.path.join(args.data, 'annotations', f'instances_{train_anno_set}.json')
+    train_anno_set = 'train_small'
+    train_annotation_path = os.path.join(args.data, 'annotations_small', f'train_annotations.json')
     train_image_dir = train_anno_set
+    print(train_image_dir)
+    print(args.data)
     dataset_train = CocoDetection(os.path.join(args.data, train_image_dir), train_annotation_path)
 
     # FIXME cutmix/mixup worth investigating?
@@ -382,10 +423,10 @@ def main():
         pin_mem=args.pin_mem,
     )
 
-    train_anno_set = 'val2017'
-    train_annotation_path = os.path.join(args.data, 'annotations', f'instances_{train_anno_set}.json')
-    train_image_dir = train_anno_set
-    dataset_eval = CocoDetection(os.path.join(args.data, train_image_dir), train_annotation_path)
+    valid_anno_set = 'valid_small'
+    valid_annotation_path = os.path.join(args.data, 'annotations_small', f'valid_annotations.json')
+    valid_img_dir = valid_anno_set
+    dataset_eval = CocoDetection(os.path.join(args.data,valid_img_dir),valid_annotation_path)
 
     loader_eval = create_loader(
         dataset_eval,
@@ -414,7 +455,7 @@ def main():
         ])
         output_dir = get_outdir(output_base, 'train', exp_name)
         decreasing = True if eval_metric == 'loss' else False
-        saver = CheckpointSaver(checkpoint_dir=output_dir, decreasing=decreasing)
+        saver = CheckpointSaver(checkpoint_dir=output_dir, decreasing=decreasing,max_history=2)
         with open(os.path.join(output_dir, 'args.yaml'), 'w') as f:
             f.write(args_text)
 

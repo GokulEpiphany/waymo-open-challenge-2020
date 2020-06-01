@@ -82,6 +82,8 @@ def validate(args):
     model = EfficientDet(config)
     if args.checkpoint:
         load_checkpoint(model, args.checkpoint)
+        print(model)
+    return
 
     param_count = sum([m.numel() for m in model.parameters()])
     print('Model %s created, param count: %d' % (args.model, param_count))

@@ -2,3 +2,6 @@ data_small/*
 data_2d_od/*
 *.json
 *.zip
+*.pth
+*.pth.tar
+*.jpg
